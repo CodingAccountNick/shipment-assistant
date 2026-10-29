@@ -1,0 +1,18 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+
+# Visual Studio / .NET
+.vs/
+bin/
+obj/
+*.user
+TestResults/
+
+# Editors / OS
+.vscode/
+.DS_Store
+Thumbs.db
