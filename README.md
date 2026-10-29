@@ -35,7 +35,7 @@ pip install -r requirements.txt
 uvicorn main:app --host 127.0.0.1 --port 8001
 ```
 
-This starts the AI service on `http://127.0.0.1:8001` (interactive docs at `/docs`). To ask a single question from the terminal instead, run `python ask.py`.
+This starts the AI service on `http://127.0.0.1:8001` (interactive docs at `/docs`). If `uvicorn` isn't found, run it through the virtual environment's Python instead: `.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8001`. To ask a single question from the terminal instead, run `python ask.py`.
 
 ### 2. Web API (.NET)
 
@@ -133,20 +133,13 @@ I think this is worth sharing because it's how a lot of us build software now. F
 - [x] ASP.NET Core Web API with a typed `HttpClient` for the AI service
 - [x] Concurrent fire-and-forget workers demo
 - [x] Python REST API (FastAPI) exposing `/ask` for the .NET API to call
-- [ ] Connect the model to real shipment data so its answers are based on actual records
-- [ ] Web chat interface
-- [ ] Docker setup
+- [ ] Docker: each service in its own container, all started with one Docker Compose command
+- [ ] Shipments stored in PostgreSQL with Entity Framework Core (code-first, migrations), with xUnit tests
+- [ ] Angular front end (standalone components, signals) with a shipment list and a chat box
+- [ ] RAG: the AI answers from real shipment documents using pgvector, with a small test set to measure accuracy
+- [ ] Messaging: a "shipment delivered" event sent through RabbitMQ to a separate .NET notifications service
+- [ ] GitHub Actions: build and run all tests on every push
 
 ## Tech
 
 C# · ASP.NET Core 8 · Python · FastAPI · Ollama · Llama 3.2
-
-
-# Run by hand
-
-Powershell
-.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8001
-
-Browser
-Run SWAGGER and make a request
-
