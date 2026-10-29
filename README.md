@@ -12,7 +12,7 @@ An AI assistant that answers questions about shipments in plain language: where 
 | `src/Shipments.Api/` | ASP.NET Core 8 Web API that forwards questions to the AI service | In progress |
 
 ```text
-Client ──► Shipments.Api (.NET, :5108) ──► ai-service (Python, :8000) ──► Ollama / Llama 3.2 (:11434)
+Client ──► Shipments.Api (.NET, :5108) ──► ai-service (Python, :8001) ──► Ollama / Llama 3.2 (:11434)
 ```
 
 ## Running it
@@ -32,10 +32,10 @@ cd ai-service
 python -m venv .venv
 .venv\Scripts\activate        # Windows (macOS/Linux: source .venv/bin/activate)
 pip install -r requirements.txt
-uvicorn main:app --host 127.0.0.1 --port 8000
+uvicorn main:app --host 127.0.0.1 --port 8001
 ```
 
-This starts the AI service on `http://127.0.0.1:8000` (interactive docs at `/docs`). To ask a single question from the terminal instead, run `python ask.py`.
+This starts the AI service on `http://127.0.0.1:8001` (interactive docs at `/docs`). To ask a single question from the terminal instead, run `python ask.py`.
 
 ### 2. Web API (.NET)
 
@@ -145,7 +145,7 @@ C# · ASP.NET Core 8 · Python · FastAPI · Ollama · Llama 3.2
 # Run by hand
 
 Powershell
-.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8000
+.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8001
 
 Browser
 Run SWAGGER and make a request
