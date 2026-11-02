@@ -14,6 +14,7 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       AiService__BaseUrl: http://ai-service:8001
+      ConnectionStrings__Shipments: Host=db;Port=5432;Database=shipments;Username=shipments;Password=${POSTGRES_PASSWORD:-devpassword}
     depends_on:
       - ai-service
     restart: unless-stopped
