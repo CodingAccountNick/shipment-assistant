@@ -1,4 +1,8 @@
 # Shipment Assistant
+## docker compose up -d --build shipments-api 
+## docker compose up -d --build ai-service      
+
+
 
 An AI assistant that answers questions about shipments in plain language: where a package is, when it will arrive, and why it's delayed.
 
@@ -13,7 +17,9 @@ An AI assistant that answers questions about shipments in plain language: where 
 | `docker-compose.yml` | Starts both services in Docker with one command | Done |
 
 ```text
-Client ──► Shipments.Api (Docker, :5108) ──► ai-service (Docker, :8001) ──► Ollama / Llama 3.2 (your machine, :11434)
+   Client ──► Shipments.Api (Docker, :5108) ──► ai-service (Docker, :8001) ──► Ollama / Llama 3.2 (your machine, :11434)
+                    │
+                    └──► PostgreSQL + pgvector (Docker, :5432)
 ```
 
 ## Quick start
@@ -78,6 +84,7 @@ If `uvicorn` isn't found, run it through the virtual environment's Python instea
 - **Multi-stage .NET build.** The API is compiled in the .NET SDK image, then only the published output is copied into the smaller ASP.NET runtime image.
 - **Fixed ports.** The API is published on `5108` (port `8080` inside its container) and the AI service on `8001`, the same ports used when running without Docker.
 - **Faster rebuilds.** Both Dockerfiles restore or install packages before copying the code, so Docker reuses those cached layers when only the code changes.
+ **Data survives restarts.** PostgreSQL stores its data in a named volume (`db-data`), so `docker compose down` keeps it. Only `docker compose down -v` deletes it.
 
 ## Endpoints
 
