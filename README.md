@@ -1,8 +1,4 @@
 # Shipment Assistant
-## docker compose up -d --build shipments-api 
-## docker compose up -d --build ai-service      
-
-
 
 An AI assistant that answers questions about shipments in plain language: where a package is, when it will arrive, and why it's delayed.
 
@@ -13,13 +9,15 @@ An AI assistant that answers questions about shipments in plain language: where 
 | Folder | What it is | Status |
 |---|---|---|
 | `ai-service/` | Python service (FastAPI) that talks to a locally hosted LLM (Llama 3.2 via Ollama) | In progress |
-| `src/Shipments.Api/` | ASP.NET Core 8 Web API that forwards questions to the AI service | In progress |
-| `docker-compose.yml` | Starts both services in Docker with one command | Done |
+| `src/Shipments.Api/` | ASP.NET Core 8 Web API that stores shipments and forwards questions to the AI service | In progress |
+| `src/Shipments.Api/Data/` | `Shipment` entity and `ShipmentsDbContext` (Entity Framework Core, code-first) | Done |
+| `src/Shipments.Api/Migrations/` | EF Core migrations that create the database tables | Done |
+| `docker-compose.yml` | Starts the API, the AI service and PostgreSQL in Docker with one command | Done |
 
 ```text
-   Client ──► Shipments.Api (Docker, :5108) ──► ai-service (Docker, :8001) ──► Ollama / Llama 3.2 (your machine, :11434)
-                    │
-                    └──► PostgreSQL + pgvector (Docker, :5432)
+Client ──► Shipments.Api (Docker, :5108) ──► ai-service (Docker, :8001) ──► Ollama / Llama 3.2 (your machine, :11434)
+                 │
+                 └──► PostgreSQL + pgvector (Docker, :5432)
 ```
 
 ## Quick start
@@ -37,22 +35,24 @@ cd shipment-assistant
 docker compose up -d --build
 ```
 
-The first build takes a few minutes. When it's done, open **http://localhost:5108/swagger**, expand `POST /api/assistant/ask`, click **Try it out**, then **Execute**. The request body already contains a sample question. The first answer can take a little longer while Ollama loads the model.
+The first build takes a few minutes. The database and its tables are created automatically on first start. When it's done, open **http://localhost:5108** (it redirects to Swagger), expand `POST /api/assistant/ask`, click **Try it out**, then **Execute**. The request body already contains a sample question. The first answer can take a little longer while Ollama loads the model.
 
 | Command | What it does |
 |---|---|
-| `docker compose up -d --build` | Build and start both services in the background |
-| `docker compose ps` | Show whether both containers are running |
-| `docker compose logs -f` | Follow both services' logs |
-| `docker compose down` | Stop everything |
+| `docker compose up -d --build` | Build and start all services in the background |
+| `docker compose ps` | Show whether the containers are running (the database should say `healthy`) |
+| `docker compose logs -f` | Follow all services' logs |
+| `docker compose exec db psql -U shipments -d shipments` | Open a SQL prompt on the database (`\dt` lists the tables, `\q` exits) |
+| `docker compose down` | Stop everything (the data is kept) |
+| `docker compose down -v` | Stop everything and **delete the database data** |
 
 ### Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| `503 AI service is not available` | Check that both containers are running (`docker compose ps`) and that Ollama is running on your machine |
-| `port is already allocated` | Something else is using port 5108 or 8001, for example the API running from Visual Studio. Stop it and run `docker compose up -d` again |
-| Swagger page doesn't load | The build may still be running. Check `docker compose logs -f shipments-api` |
+| `503 AI service is not available` | Check that the containers are running (`docker compose ps`) and that Ollama is running on your machine |
+| `port is already allocated` | Something else is using port 5108, 8001 or 5432, for example the API running from Visual Studio or a local PostgreSQL install. Stop it and run `docker compose up -d` again |
+| Swagger page doesn't load | The build may still be running, or the API is waiting for the database. Check `docker compose logs -f shipments-api` |
 
 ## Developing without Docker
 
@@ -62,7 +62,18 @@ To debug the API in Visual Studio, stop its container first so port 5108 is free
 docker compose stop shipments-api
 ```
 
-Then open `ShipmentAssistant.sln` and press **F5**, or run `dotnet run --project src/Shipments.Api`. The API reads the AI service's address from `appsettings.json` (`AiService:BaseUrl` = `http://127.0.0.1:8001`), so it still uses the AI service container.
+Then open `ShipmentAssistant.sln` and press **F5**, or run `dotnet run --project src/Shipments.Api`. The API reads its settings from `appsettings.json`, which point at the containers through your machine: the AI service at `http://127.0.0.1:8001` and the database at `localhost:5432`.
+
+### Changing the database model
+
+After changing the `Shipment` entity or `ShipmentsDbContext`, create a migration and apply it (needs the EF tool once: `dotnet tool install --global dotnet-ef`):
+
+```bash
+dotnet ef migrations add <DescriptiveName> --project src/Shipments.Api
+dotnet ef database update --project src/Shipments.Api
+```
+
+Commit the generated files in `Migrations/` with the code change. The Docker setup also applies new migrations automatically when the API starts.
 
 To run the AI service without Docker too, stop its container (`docker compose stop ai-service`) and then:
 
@@ -78,13 +89,16 @@ If `uvicorn` isn't found, run it through the virtual environment's Python instea
 
 ## How the Docker setup works
 
-- **Two containers, one network.** Docker Compose puts both services on a private network, where the API reaches the AI service by its service name: `http://ai-service:8001`.
-- **Configuration by environment.** `appsettings.json` points the API at `http://127.0.0.1:8001` for local development. In Docker, the environment variable `AiService__BaseUrl` overrides it (`__` stands for `:` in .NET configuration), so the same code works in both places.
+- **Three containers, one network.** Docker Compose puts the services on a private network, where they reach each other by service name: the API calls `http://ai-service:8001` and connects to the database at `Host=db`.
+- **Configuration by environment.** `appsettings.json` holds the addresses for local development. In Docker, the environment variables `AiService__BaseUrl` and `ConnectionStrings__Shipments` override them (`__` stands for `:` in .NET configuration), so the same code works in both places.
+- **The API waits for the database.** PostgreSQL has a health check (`pg_isready`), and the API only starts once it passes, so it never tries to connect too early.
+- **Tables are created automatically.** In Development, the API applies any pending EF Core migrations when it starts. In production you'd run migrations as a separate deployment step instead, so several app instances don't try to change the database at the same time.
+- **Data survives restarts.** PostgreSQL stores its data in a named volume (`db-data`), so `docker compose down` keeps it. Only `docker compose down -v` deletes it.
+- **Ready for RAG.** The database image includes the pgvector extension, which the AI search features will use later.
 - **Ollama stays on your machine.** The AI service reaches it through `host.docker.internal`, set as `OLLAMA_URL` in its Dockerfile. When run directly, `ask.py` falls back to `http://localhost:11434`.
 - **Multi-stage .NET build.** The API is compiled in the .NET SDK image, then only the published output is copied into the smaller ASP.NET runtime image.
 - **Fixed ports.** The API is published on `5108` (port `8080` inside its container) and the AI service on `8001`, the same ports used when running without Docker.
 - **Faster rebuilds.** Both Dockerfiles restore or install packages before copying the code, so Docker reuses those cached layers when only the code changes.
- **Data survives restarts.** PostgreSQL stores its data in a named volume (`db-data`), so `docker compose down` keeps it. Only `docker compose down -v` deletes it.
 
 ## Endpoints
 
@@ -174,7 +188,9 @@ I think this is worth sharing because it's how a lot of us build software now. F
 - [x] Concurrent fire-and-forget workers demo
 - [x] Python REST API (FastAPI) exposing `/ask` for the .NET API to call
 - [x] Docker: the AI service and the .NET API each run in their own container, started together with one Docker Compose command
-- [ ] Shipments stored in PostgreSQL (in Docker) with Entity Framework Core (code-first, migrations), with xUnit tests
+- [x] PostgreSQL (with pgvector) in Docker, with data kept in a volume
+- [x] `Shipment` entity with Entity Framework Core code-first and migrations, applied automatically on startup
+- [ ] Shipment endpoints (create, list, get, update status) with xUnit tests
 - [ ] Angular front end (standalone components, signals) with a shipment list and a chat box
 - [ ] RAG: the AI answers from real shipment documents using pgvector, with a small test set to measure accuracy
 - [ ] Messaging: a "shipment delivered" event sent through RabbitMQ to a separate .NET notifications service
@@ -182,4 +198,4 @@ I think this is worth sharing because it's how a lot of us build software now. F
 
 ## Tech
 
-C# · ASP.NET Core 8 · Python · FastAPI · Docker · Docker Compose · Ollama · Llama 3.2
+C# · ASP.NET Core 8 · Entity Framework Core · PostgreSQL · pgvector · Python · FastAPI · Docker · Docker Compose · Ollama · Llama 3.2

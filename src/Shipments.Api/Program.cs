@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+using Shipments.Api.Data;
 using Shipments.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -11,6 +13,8 @@ builder.Services.AddSingleton<DemoWorker>();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddDbContext<ShipmentsDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("Shipments")));
 
 var app = builder.Build();
 
@@ -21,12 +25,19 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 
     app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();
+
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<ShipmentsDbContext>();
+    db.Database.Migrate();
+
 }
 
 app.UseHttpsRedirection();
 
 app.UseAuthorization();
 
+
 app.MapControllers();
+
 
 app.Run();
