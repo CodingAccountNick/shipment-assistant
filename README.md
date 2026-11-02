@@ -8,24 +8,57 @@ An AI assistant that answers questions about shipments in plain language: where 
 
 | Folder | What it is | Status |
 |---|---|---|
-| `ai-service/` | Python service that talks to a locally hosted LLM (Llama 3.2 via Ollama) | In progress |
+| `ai-service/` | Python service (FastAPI) that talks to a locally hosted LLM (Llama 3.2 via Ollama) | In progress |
 | `src/Shipments.Api/` | ASP.NET Core 8 Web API that forwards questions to the AI service | In progress |
+| `docker-compose.yml` | Starts both services in Docker with one command | Done |
 
 ```text
-Client ──► Shipments.Api (.NET, :5108) ──► ai-service (Python, :8001) ──► Ollama / Llama 3.2 (:11434)
+Client ──► Shipments.Api (Docker, :5108) ──► ai-service (Docker, :8001) ──► Ollama / Llama 3.2 (your machine, :11434)
 ```
 
-## Running it
+## Quick start
 
-### 1. AI service (Python)
+You need:
 
-You'll need [Ollama](https://ollama.com) running locally with the model pulled:
-
-```bash
-ollama pull llama3.2
-```
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/), running
+- [Ollama](https://ollama.com), running, with the model pulled: `ollama pull llama3.2`
 
 Then:
+
+```bash
+git clone https://github.com/CodingAccountNick/shipment-assistant.git
+cd shipment-assistant
+docker compose up -d --build
+```
+
+The first build takes a few minutes. When it's done, open **http://localhost:5108/swagger**, expand `POST /api/assistant/ask`, click **Try it out**, then **Execute**. The request body already contains a sample question. The first answer can take a little longer while Ollama loads the model.
+
+| Command | What it does |
+|---|---|
+| `docker compose up -d --build` | Build and start both services in the background |
+| `docker compose ps` | Show whether both containers are running |
+| `docker compose logs -f` | Follow both services' logs |
+| `docker compose down` | Stop everything |
+
+### Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `503 AI service is not available` | Check that both containers are running (`docker compose ps`) and that Ollama is running on your machine |
+| `port is already allocated` | Something else is using port 5108 or 8001, for example the API running from Visual Studio. Stop it and run `docker compose up -d` again |
+| Swagger page doesn't load | The build may still be running. Check `docker compose logs -f shipments-api` |
+
+## Developing without Docker
+
+To debug the API in Visual Studio, stop its container first so port 5108 is free:
+
+```bash
+docker compose stop shipments-api
+```
+
+Then open `ShipmentAssistant.sln` and press **F5**, or run `dotnet run --project src/Shipments.Api`. The API reads the AI service's address from `appsettings.json` (`AiService:BaseUrl` = `http://127.0.0.1:8001`), so it still uses the AI service container.
+
+To run the AI service without Docker too, stop its container (`docker compose stop ai-service`) and then:
 
 ```bash
 cd ai-service
@@ -35,17 +68,16 @@ pip install -r requirements.txt
 uvicorn main:app --host 127.0.0.1 --port 8001
 ```
 
-This starts the AI service on `http://127.0.0.1:8001` (interactive docs at `/docs`). If `uvicorn` isn't found, run it through the virtual environment's Python instead: `.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8001`. To ask a single question from the terminal instead, run `python ask.py`.
+If `uvicorn` isn't found, run it through the virtual environment's Python instead: `.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8001`. To ask a single question from the terminal, run `python ask.py`.
 
-### 2. Web API (.NET)
+## How the Docker setup works
 
-Open `ShipmentAssistant.sln` in Visual Studio 2022 and press **F5**, or run:
-
-```bash
-dotnet run --project src/Shipments.Api
-```
-
-Swagger opens at `http://localhost:5108/swagger`. The address of the AI service is set in `appsettings.json` under `AiService:BaseUrl`.
+- **Two containers, one network.** Docker Compose puts both services on a private network, where the API reaches the AI service by its service name: `http://ai-service:8001`.
+- **Configuration by environment.** `appsettings.json` points the API at `http://127.0.0.1:8001` for local development. In Docker, the environment variable `AiService__BaseUrl` overrides it (`__` stands for `:` in .NET configuration), so the same code works in both places.
+- **Ollama stays on your machine.** The AI service reaches it through `host.docker.internal`, set as `OLLAMA_URL` in its Dockerfile. When run directly, `ask.py` falls back to `http://localhost:11434`.
+- **Multi-stage .NET build.** The API is compiled in the .NET SDK image, then only the published output is copied into the smaller ASP.NET runtime image.
+- **Fixed ports.** The API is published on `5108` (port `8080` inside its container) and the AI service on `8001`, the same ports used when running without Docker.
+- **Faster rebuilds.** Both Dockerfiles restore or install packages before copying the code, so Docker reuses those cached layers when only the code changes.
 
 ## Endpoints
 
@@ -121,6 +153,7 @@ Just so you know, I used an AI coding assistant (Claude) for some parts of this 
 - **The concurrent workers demo** (`Services/DemoWorker.cs` and `Controllers/DemoController.cs`). I explained what I wanted to show, and Claude wrote the code.
 - **Fixing the API setup.** When my controller wouldn't compile, Claude found what was missing and wired up `AiServiceClient` properly.
 - **The FastAPI service** (`ai-service/main.py`) that puts my `ask()` function behind an `/ask` endpoint.
+- **The Docker setup.** Claude walked me through containerising both services step by step. I wrote the files and fixed the problems along the way.
 - **This README**, including the design notes.
 
 The Python script, `AiServiceClient` and the first version of `AssistantController` are my own work.
@@ -133,8 +166,8 @@ I think this is worth sharing because it's how a lot of us build software now. F
 - [x] ASP.NET Core Web API with a typed `HttpClient` for the AI service
 - [x] Concurrent fire-and-forget workers demo
 - [x] Python REST API (FastAPI) exposing `/ask` for the .NET API to call
-- [ ] Docker: each service in its own container, all started with one Docker Compose command
-- [ ] Shipments stored in PostgreSQL with Entity Framework Core (code-first, migrations), with xUnit tests
+- [x] Docker: the AI service and the .NET API each run in their own container, started together with one Docker Compose command
+- [ ] Shipments stored in PostgreSQL (in Docker) with Entity Framework Core (code-first, migrations), with xUnit tests
 - [ ] Angular front end (standalone components, signals) with a shipment list and a chat box
 - [ ] RAG: the AI answers from real shipment documents using pgvector, with a small test set to measure accuracy
 - [ ] Messaging: a "shipment delivered" event sent through RabbitMQ to a separate .NET notifications service
@@ -142,4 +175,4 @@ I think this is worth sharing because it's how a lot of us build software now. F
 
 ## Tech
 
-C# · ASP.NET Core 8 · Python · FastAPI · Ollama · Llama 3.2
+C# · ASP.NET Core 8 · Python · FastAPI · Docker · Docker Compose · Ollama · Llama 3.2

@@ -1,9 +1,10 @@
 import requests
+import os
 
 
 # pip install "fastapi[standard]"
 #fastapi dev main.py --port 8001
-OLLAMA_URL = "http://localhost:11434/api/generate"
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
 MODEL = "llama3.2"
 
 SYSTEM_PROMPT = """You are an assistant for a logistics company.

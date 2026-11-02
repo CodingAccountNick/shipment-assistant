@@ -1,0 +1,19 @@
+services:
+  ai-service:
+    build: ./ai-service
+    ports:
+      - "8001:8001"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  shipments-api:
+    build: ./src/Shipments.Api
+    ports:
+      - "5108:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      AiService__BaseUrl: http://ai-service:8001
+    depends_on:
+      - ai-service
+    restart: unless-stopped

@@ -1,6 +1,10 @@
-﻿namespace Shipments.Api.Services
+﻿using System.ComponentModel;
+namespace Shipments.Api.Services
 {
-    public record AskRequest(string Question);
+    public record AskRequest(
+        [property: DefaultValue("What does 'out for delivery' mean?")]
+        string Question
+    );
     public record AskResponse(string Answer);
 
     public class AiServiceClient(HttpClient http)
