@@ -104,9 +104,26 @@ If `uvicorn` isn't found, run it through the virtual environment's Python instea
 
 | Method | Route | What it does |
 |---|---|---|
+| `GET` | `/api/shipments` | Lists all shipments |
+| `GET` | `/api/shipments/{trackingNumber}` | Gets one shipment, or `404` if it doesn't exist |
+| `POST` | `/api/shipments` | Creates a shipment. Returns `201`, `400` for invalid input (tracking numbers look like `SH-1234`), or `409` if the tracking number is taken |
+| `PATCH` | `/api/shipments/{trackingNumber}/status` | Changes a shipment's status and records the delivery time when it's delivered. Returns `409` for a shipment that's already delivered |
 | `POST` | `/api/assistant/ask` | Asks the AI one question and waits for the answer. Returns `503` if the AI service is down. |
 | `POST` | `/api/demo/start` | Starts the concurrent workers demo (below) and returns `202 Accepted` immediately. |
 | `GET` | `/api/demo/jobs` | Shows the live status of each demo worker. |
+
+Statuses are sent and received as names (`"InTransit"`, `"Delivered"`), not numbers, so clients don't depend on the enum's order. Errors use the standard [ProblemDetails](https://www.rfc-editor.org/rfc/rfc9457) format (`application/problem+json`), so every error has the same shape:
+
+```json
+{
+  "title": "Shipment already delivered",
+  "status": 409,
+  "detail": "Shipment SH-1004 is already delivered",
+  "traceId": "00-..."
+}
+```
+
+In Development, the database starts with four sample shipments (`SH-1001` to `SH-1004`) to try the endpoints with.
 
 ## Demo: concurrent fire-and-forget workers
 
@@ -190,7 +207,8 @@ I think this is worth sharing because it's how a lot of us build software now. F
 - [x] Docker: the AI service and the .NET API each run in their own container, started together with one Docker Compose command
 - [x] PostgreSQL (with pgvector) in Docker, with data kept in a volume
 - [x] `Shipment` entity with Entity Framework Core code-first and migrations, applied automatically on startup
-- [ ] Shipment endpoints (create, list, get, update status) with xUnit tests
+- [x] Shipment endpoints (create, list, get, update status) with validation and ProblemDetails errors
+- [ ] xUnit tests for the shipment rules and endpoints
 - [ ] Angular front end (standalone components, signals) with a shipment list and a chat box
 - [ ] RAG: the AI answers from real shipment documents using pgvector, with a small test set to measure accuracy
 - [ ] Messaging: a "shipment delivered" event sent through RabbitMQ to a separate .NET notifications service
