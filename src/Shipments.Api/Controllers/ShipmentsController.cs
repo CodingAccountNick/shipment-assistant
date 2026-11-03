@@ -75,7 +75,7 @@ public class ShipmentsController(ShipmentsDbContext db) : ControllerBase
     {
         var shipment = await db.Shipments.FirstOrDefaultAsync(s => s.TrackingNumber == trackingNumber, ct);
         if (shipment is null)
-            return Problem(statusCode: StatusCodes.Status404NotFound,
+             return Problem(statusCode: StatusCodes.Status404NotFound,
                     title: "Shipment not found",
                     detail: $"Shipment {trackingNumber} not found");
 
