@@ -1,5 +1,7 @@
 # Shipment Assistant
 
+[![CI](https://github.com/CodingAccountNick/shipment-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/CodingAccountNick/shipment-assistant/actions/workflows/ci.yml)
+
 An AI assistant that answers questions about shipments in plain language: where a package is, when it will arrive, and why it's delayed.
 
 > 🟡 **Work in progress.** I'm building this in the open, so expect frequent changes.
@@ -95,6 +97,8 @@ Docker Desktop must be running, because the endpoint tests start their own datab
 ```bash
 dotnet test
 ```
+
+The same tests run automatically on GitHub Actions for every push and pull request to `main` (see `.github/workflows/ci.yml`), together with a build of both Docker images. The badge at the top shows the latest result.
 
 There are two kinds of tests:
 
@@ -226,8 +230,8 @@ I think this is worth sharing because it's how a lot of us build software now. F
 - [ ] Angular front end (standalone components, signals) with a shipment list and a chat box
 - [ ] RAG: the AI answers from real shipment documents using pgvector, with a small test set to measure accuracy
 - [ ] Messaging: a "shipment delivered" event sent through RabbitMQ to a separate .NET notifications service
-- [ ] GitHub Actions: build and run all tests on every push
+- [x] GitHub Actions: build, run all tests and build the Docker images on every push and pull request
 
 ## Tech
 
-C# · ASP.NET Core 8 · Entity Framework Core · PostgreSQL · pgvector · xUnit · Testcontainers · Python · FastAPI · Docker · Docker Compose · Ollama · Llama 3.2
+C# · ASP.NET Core 8 · Entity Framework Core · PostgreSQL · pgvector · xUnit · Testcontainers · Python · FastAPI · Docker · Docker Compose · GitHub Actions · Ollama · Llama 3.2
