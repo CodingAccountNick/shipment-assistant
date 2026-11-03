@@ -9,6 +9,7 @@ app = FastAPI(title="Shipment Assistant AI service")
 
 class AskRequest(BaseModel):
     question: str
+    context: str | None = None   # NEW: facts the answer should be based on
 
 
 class AskResponse(BaseModel):
@@ -21,12 +22,11 @@ class AskResponse(BaseModel):
 def ask_endpoint(request: AskRequest) -> AskResponse:
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty")
-
     try:
-        return AskResponse(answer=ask(request.question))
+        answer = ask(request.question, request.context)   # CHANGED: pass the context on
     except requests.RequestException:
-        # Ollama is down or returned an error
-        raise HTTPException(status_code=503, detail="Model is not available")
+        raise HTTPException(status_code=503, detail="AI model is not available")
+    return AskResponse(answer=answer)
 
 
 @app.get("/health")

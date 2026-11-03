@@ -147,7 +147,7 @@ There are two kinds of tests:
 | `GET` | `/api/shipments/{trackingNumber}` | Gets one shipment, or `404` if it doesn't exist |
 | `POST` | `/api/shipments` | Creates a shipment. Returns `201`, `400` for invalid input (tracking numbers look like `SH-1234`), or `409` if the tracking number is taken |
 | `PATCH` | `/api/shipments/{trackingNumber}/status` | Changes a shipment's status and records the delivery time when it's delivered. Returns `409` for a shipment that's already delivered |
-| `POST` | `/api/assistant/ask` | Asks the AI one question and waits for the answer. Returns `503` if the AI service is down. |
+| `POST` | `/api/assistant/ask` | Asks the AI one question and waits for the answer. If the question mentions tracking numbers, the answer is based on those shipments' real data. Returns `503` if the AI service is down. |
 | `POST` | `/api/demo/start` | Starts the concurrent workers demo (below) and returns `202 Accepted` immediately. |
 | `GET` | `/api/demo/jobs` | Shows the live status of each demo worker. |
 
@@ -163,6 +163,26 @@ Statuses are sent and received as names (`"InTransit"`, `"Delivered"`), not numb
 ```
 
 In Development, the database starts with four sample shipments (`SH-1001` to `SH-1004`) to try the endpoints with.
+
+## How the assistant uses shipment data
+
+Ask "Where is SH-1001?" and the assistant answers from the database, not from guesswork:
+
+```text
+"Where is SH-1001?" ──► Shipments.Api finds "SH-1001" in the question and loads it from PostgreSQL
+                              │
+                              ▼  question + "Shipment SH-1001: from London to Vienna, status InTransit, ..."
+                         ai-service adds those facts to the prompt ──► Llama 3.2 answers from them
+```
+
+This is the first step of retrieval-augmented generation (RAG): **retrieve** the relevant facts, **augment** the prompt with them, then let the model **generate** the answer.
+
+- **The facts come from the server.** Clients only send a question, and the API builds the context itself, so nobody can feed the model made-up data.
+- **Unknown shipments are facts too.** For `SH-9999`, the model is told the shipment isn't in the system, so it says so instead of inventing a location.
+- **One query for every shipment mentioned.** "Compare SH-1001 and SH-1002" loads both in a single database call.
+- **The prompt tells the model to stick to the facts** and to say it doesn't know when they don't contain the answer.
+
+Questions without a tracking number ("What does out for delivery mean?") are answered from the model's general knowledge.
 
 ## Demo: concurrent fire-and-forget workers
 
@@ -185,7 +205,7 @@ The request returns straight away, and the workers carry on in the background wi
 [ 22.3s] Worker 1 answered (thread 15): I cannot provide information about a specific shipment...
 ```
 
-The model doesn't know about these shipments yet, because it isn't connected to any shipment data (see the roadmap).
+This run is from before the assistant was connected to the shipment data, so the model didn't know these shipments yet. Now the same questions are answered from the database (see "How the assistant uses shipment data").
 
 Call `GET /api/demo/jobs` while it runs to watch each worker go from `Waiting` to `Asking AI` to `Answered`.
 
@@ -249,9 +269,10 @@ I think this is worth sharing because it's how a lot of us build software now. F
 - [x] Shipment endpoints (create, list, get, update status) with validation and ProblemDetails errors
 - [x] xUnit tests: unit tests for the status rules, and endpoint tests against a real PostgreSQL in Testcontainers
 - [x] Angular front end (standalone components, signals) with a shipment list and a chat box, served by nginx in Docker
-- [ ] RAG: the AI answers from real shipment documents using pgvector, with a small test set to measure accuracy
-- [ ] Messaging: a "shipment delivered" event sent through RabbitMQ to a separate .NET notifications service
 - [x] GitHub Actions: build, run all tests and build the Docker images on every push and pull request
+- [x] Grounded answers: questions about a tracking number are answered from that shipment's data in PostgreSQL
+- [ ] RAG over documents: delivery policies split into chunks, embedded and searched with pgvector, with a small test set to measure accuracy
+- [ ] Messaging: a "shipment delivered" event sent through RabbitMQ to a separate .NET notifications service
 
 ## Tech
 
