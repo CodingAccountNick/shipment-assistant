@@ -10,17 +10,21 @@ An AI assistant that answers questions about shipments in plain language: where 
 
 | Folder | What it is | Status |
 |---|---|---|
+| `web/` | Angular front end (standalone components, signals): a shipment list and a chat with the assistant, served by nginx in Docker | In progress |
 | `ai-service/` | Python service (FastAPI) that talks to a locally hosted LLM (Llama 3.2 via Ollama) | In progress |
 | `src/Shipments.Api/` | ASP.NET Core 8 Web API that stores shipments and forwards questions to the AI service | In progress |
 | `src/Shipments.Api/Data/` | `Shipment` entity and `ShipmentsDbContext` (Entity Framework Core, code-first) | Done |
 | `src/Shipments.Api/Migrations/` | EF Core migrations that create the database tables | Done |
 | `tests/Shipments.Api.Tests/` | xUnit unit tests for the status rules, and endpoint tests against a real PostgreSQL in Testcontainers | Done |
-| `docker-compose.yml` | Starts the API, the AI service and PostgreSQL in Docker with one command | Done |
+| `docker-compose.yml` | Starts the whole app (web, API, AI service, PostgreSQL) in Docker with one command | Done |
 
 ```text
-Client ──► Shipments.Api (Docker, :5108) ──► ai-service (Docker, :8001) ──► Ollama / Llama 3.2 (your machine, :11434)
+Browser ──► web (Angular + nginx, :8080)
+                 │  /api/...
+                 ▼
+            Shipments.Api (.NET, :5108) ──► ai-service (Python, :8001) ──► Ollama / Llama 3.2 (your machine, :11434)
                  │
-                 └──► PostgreSQL + pgvector (Docker, :5432)
+                 └──► PostgreSQL + pgvector (:5432)
 ```
 
 ## Quick start
@@ -38,7 +42,10 @@ cd shipment-assistant
 docker compose up -d --build
 ```
 
-The first build takes a few minutes. The database and its tables are created automatically on first start. When it's done, open **http://localhost:5108** (it redirects to Swagger), expand `POST /api/assistant/ask`, click **Try it out**, then **Execute**. The request body already contains a sample question. The first answer can take a little longer while Ollama loads the model.
+The first build takes a few minutes. The database and its tables are created automatically on first start. When it's done:
+
+- **The app:** open **http://localhost:8080** to see the shipment list and chat with the assistant. Click one of the suggested questions to try it. The first answer can take a little longer while Ollama loads the model.
+- **The API:** open **http://localhost:5108**, which redirects to Swagger, to try the endpoints directly.
 
 | Command | What it does |
 |---|---|
@@ -54,8 +61,9 @@ The first build takes a few minutes. The database and its tables are created aut
 | Problem | Fix |
 |---|---|
 | `503 AI service is not available` | Check that the containers are running (`docker compose ps`) and that Ollama is running on your machine |
-| `port is already allocated` | Something else is using port 5108, 8001 or 5432, for example the API running from Visual Studio or a local PostgreSQL install. Stop it and run `docker compose up -d` again |
-| Swagger page doesn't load | The build may still be running, or the API is waiting for the database. Check `docker compose logs -f shipments-api` |
+| `port is already allocated` | Something else is using port 8080, 5108, 8001 or 5432, for example the API running from Visual Studio or a local PostgreSQL install. Stop it and run `docker compose up -d` again |
+| The app or Swagger doesn't load | The build may still be running, or the API is waiting for the database. Check `docker compose logs -f web shipments-api` |
+| The app shows "Could not load shipments" | The API isn't reachable. Check `docker compose ps` and `docker compose logs shipments-api` |
 
 ## Developing without Docker
 
@@ -66,6 +74,18 @@ docker compose stop shipments-api
 ```
 
 Then open `ShipmentAssistant.sln` and press **F5**, or run `dotnet run --project src/Shipments.Api`. The API reads its settings from `appsettings.json`, which point at the containers through your machine: the AI service at `http://127.0.0.1:8001` and the database at `localhost:5432`.
+
+### Front end
+
+The Angular dev server reloads instantly when you save. It runs alongside the Docker setup on a different port:
+
+```bash
+cd web
+npm install
+npm start
+```
+
+Open **http://localhost:4200**. `proxy.conf.json` forwards `/api/...` requests to the API on port 5108, so the app and the API look like one site to the browser and no CORS setup is needed.
 
 ### Changing the database model
 
@@ -98,7 +118,7 @@ Docker Desktop must be running, because the endpoint tests start their own datab
 dotnet test
 ```
 
-The same tests run automatically on GitHub Actions for every push and pull request to `main` (see `.github/workflows/ci.yml`), together with a build of both Docker images. The badge at the top shows the latest result.
+The same tests run automatically on GitHub Actions for every push and pull request to `main` (see `.github/workflows/ci.yml`), together with a build of all the Docker images, which also checks that the Angular app compiles. The badge at the top shows the latest result.
 
 There are two kinds of tests:
 
@@ -107,7 +127,8 @@ There are two kinds of tests:
 
 ## How the Docker setup works
 
-- **Three containers, one network.** Docker Compose puts the services on a private network, where they reach each other by service name: the API calls `http://ai-service:8001` and connects to the database at `Host=db`.
+- **Four containers, one network.** Docker Compose puts the services on a private network, where they reach each other by service name: nginx forwards `/api/...` to `http://shipments-api:8080`, the API calls `http://ai-service:8001`, and it connects to the database at `Host=db`.
+- **The front end is just files.** The Angular app is compiled in a Node image, then only the built files are copied into a small nginx image. nginx serves them, falls back to `index.html` for app routes, and forwards API calls with a longer timeout for slow AI answers.
 - **Configuration by environment.** `appsettings.json` holds the addresses for local development. In Docker, the environment variables `AiService__BaseUrl` and `ConnectionStrings__Shipments` override them (`__` stands for `:` in .NET configuration), so the same code works in both places.
 - **The API waits for the database.** PostgreSQL has a health check (`pg_isready`), and the API only starts once it passes, so it never tries to connect too early.
 - **Tables are created automatically.** In Development, the API applies any pending EF Core migrations when it starts. In production you'd run migrations as a separate deployment step instead, so several app instances don't try to change the database at the same time.
@@ -115,8 +136,8 @@ There are two kinds of tests:
 - **Ready for RAG.** The database image includes the pgvector extension, which the AI search features will use later.
 - **Ollama stays on your machine.** The AI service reaches it through `host.docker.internal`, set as `OLLAMA_URL` in its Dockerfile. When run directly, `ask.py` falls back to `http://localhost:11434`.
 - **Multi-stage .NET build.** The API is compiled in the .NET SDK image, then only the published output is copied into the smaller ASP.NET runtime image.
-- **Fixed ports.** The API is published on `5108` (port `8080` inside its container) and the AI service on `8001`, the same ports used when running without Docker.
-- **Faster rebuilds.** Both Dockerfiles restore or install packages before copying the code, so Docker reuses those cached layers when only the code changes.
+- **Fixed ports.** The web app is published on `8080`, the API on `5108` (port `8080` inside its container) and the AI service on `8001`. The API and AI service use the same ports as when running without Docker.
+- **Faster rebuilds.** All three Dockerfiles restore or install packages before copying the code, so Docker reuses those cached layers when only the code changes.
 
 ## Endpoints
 
@@ -227,11 +248,11 @@ I think this is worth sharing because it's how a lot of us build software now. F
 - [x] `Shipment` entity with Entity Framework Core code-first and migrations, applied automatically on startup
 - [x] Shipment endpoints (create, list, get, update status) with validation and ProblemDetails errors
 - [x] xUnit tests: unit tests for the status rules, and endpoint tests against a real PostgreSQL in Testcontainers
-- [ ] Angular front end (standalone components, signals) with a shipment list and a chat box
+- [x] Angular front end (standalone components, signals) with a shipment list and a chat box, served by nginx in Docker
 - [ ] RAG: the AI answers from real shipment documents using pgvector, with a small test set to measure accuracy
 - [ ] Messaging: a "shipment delivered" event sent through RabbitMQ to a separate .NET notifications service
 - [x] GitHub Actions: build, run all tests and build the Docker images on every push and pull request
 
 ## Tech
 
-C# · ASP.NET Core 8 · Entity Framework Core · PostgreSQL · pgvector · xUnit · Testcontainers · Python · FastAPI · Docker · Docker Compose · GitHub Actions · Ollama · Llama 3.2
+Angular · TypeScript · nginx · C# · ASP.NET Core 8 · Entity Framework Core · PostgreSQL · pgvector · xUnit · Testcontainers · Python · FastAPI · Docker · Docker Compose · GitHub Actions · Ollama · Llama 3.2

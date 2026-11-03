@@ -19,6 +19,15 @@ services:
       - ai-service
     restart: unless-stopped
 
+  web:
+    build: ./web
+    ports:
+      - "8080:80"
+    depends_on:
+      - shipments-api
+    restart: unless-stopped
+
+
   db:
     image: pgvector/pgvector:pg16
     environment:
@@ -38,3 +47,5 @@ services:
 
 volumes:
   db-data:
+
+  
