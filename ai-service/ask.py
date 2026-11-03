@@ -11,16 +11,22 @@ SYSTEM_PROMPT = """You are an assistant for a logistics company.
 Answer questions about shipments, deliveries and transport clearly and briefly.
 If you don't know the answer, say so instead of guessing."""
 
-def ask(question: str) -> str:
+def ask(question: str, context: str | None = None) -> str:
+    prompt = question
+    if context:
+        prompt = (
+            "Use the shipment information below to answer the question. "
+            "If the information doesn't contain the answer, say you don't know.\n\n"
+            f"Shipment information:\n{context}\n\n"
+            f"Question: {question}"
+        )
+
     response = requests.post(
         OLLAMA_URL,
-       json={"model": MODEL,
-              "system": SYSTEM_PROMPT,
-              "prompt": question, 
-              "stream": False},
+        json={"model": MODEL, "system": SYSTEM_PROMPT, "prompt": prompt, "stream": False},
         timeout=120,
     )
-    response.raise_for_status()
+    response.raise_for_status()                                                                                                                                             
     return response.json()["response"]
 
 

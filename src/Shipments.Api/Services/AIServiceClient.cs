@@ -9,11 +9,17 @@ namespace Shipments.Api.Services
 
     public class AiServiceClient(HttpClient http)
     {
-        public async Task<string> AskAsync(string question, CancellationToken ct)
-        {
-            var response = await http.PostAsJsonAsync("/ask", new AskRequest(question), ct);
-            response.EnsureSuccessStatusCode();
+        // What we send to the Python service (separate from the public API's AskRequest)
+        private record AiAskRequest(string Question, string? Context);
 
+        // Existing callers (like the demo workers) keep working unchanged
+        public Task<string> AskAsync(string question, CancellationToken ct) =>
+            AskAsync(question, null, ct);
+
+        public async Task<string> AskAsync(string question, string? context, CancellationToken ct)
+        {
+            var response = await http.PostAsJsonAsync("/ask", new AiAskRequest(question, context), ct);
+            response.EnsureSuccessStatusCode();
             var result = await response.Content.ReadFromJsonAsync<AskResponse>(ct);
             return result?.Answer ?? throw new InvalidOperationException("Empty response from AI service");
         }
