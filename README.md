@@ -12,6 +12,7 @@ An AI assistant that answers questions about shipments in plain language: where 
 | `src/Shipments.Api/` | ASP.NET Core 8 Web API that stores shipments and forwards questions to the AI service | In progress |
 | `src/Shipments.Api/Data/` | `Shipment` entity and `ShipmentsDbContext` (Entity Framework Core, code-first) | Done |
 | `src/Shipments.Api/Migrations/` | EF Core migrations that create the database tables | Done |
+| `tests/Shipments.Api.Tests/` | xUnit unit tests for the status rules, and endpoint tests against a real PostgreSQL in Testcontainers | Done |
 | `docker-compose.yml` | Starts the API, the AI service and PostgreSQL in Docker with one command | Done |
 
 ```text
@@ -86,6 +87,19 @@ uvicorn main:app --host 127.0.0.1 --port 8001
 ```
 
 If `uvicorn` isn't found, run it through the virtual environment's Python instead: `.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 8001`. To ask a single question from the terminal, run `python ask.py`.
+
+## Running the tests
+
+Docker Desktop must be running, because the endpoint tests start their own database container. From the repository root:
+
+```bash
+dotnet test
+```
+
+There are two kinds of tests:
+
+- **Unit tests** (`ShipmentStatusRulesTests`) check the status rules on their own, with no database or HTTP. A shipment can only move along the allowed path (`Created → InTransit → OutForDelivery → Delivered`, with `Delayed` possible on the way), and a delivered shipment can't change again.
+- **Endpoint tests** (`ShipmentsEndpointTests`) start the real API in memory with `WebApplicationFactory` and send real HTTP requests to it. They check status codes (201, 400, 404, 409), response bodies and the ProblemDetails errors. [Testcontainers](https://testcontainers.com) starts a fresh PostgreSQL container for each test run and removes it afterwards, so the tests use a real database and never touch your development data. Each test that changes data creates its own shipment, so the tests don't depend on each other or on the order they run in.
 
 ## How the Docker setup works
 
@@ -208,7 +222,7 @@ I think this is worth sharing because it's how a lot of us build software now. F
 - [x] PostgreSQL (with pgvector) in Docker, with data kept in a volume
 - [x] `Shipment` entity with Entity Framework Core code-first and migrations, applied automatically on startup
 - [x] Shipment endpoints (create, list, get, update status) with validation and ProblemDetails errors
-- [ ] xUnit tests for the shipment rules and endpoints
+- [x] xUnit tests: unit tests for the status rules, and endpoint tests against a real PostgreSQL in Testcontainers
 - [ ] Angular front end (standalone components, signals) with a shipment list and a chat box
 - [ ] RAG: the AI answers from real shipment documents using pgvector, with a small test set to measure accuracy
 - [ ] Messaging: a "shipment delivered" event sent through RabbitMQ to a separate .NET notifications service
@@ -216,4 +230,4 @@ I think this is worth sharing because it's how a lot of us build software now. F
 
 ## Tech
 
-C# · ASP.NET Core 8 · Entity Framework Core · PostgreSQL · pgvector · Python · FastAPI · Docker · Docker Compose · Ollama · Llama 3.2
+C# · ASP.NET Core 8 · Entity Framework Core · PostgreSQL · pgvector · xUnit · Testcontainers · Python · FastAPI · Docker · Docker Compose · Ollama · Llama 3.2
