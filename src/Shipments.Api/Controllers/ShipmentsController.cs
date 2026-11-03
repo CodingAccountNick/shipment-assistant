@@ -33,8 +33,10 @@ public class ShipmentsController(ShipmentsDbContext db) : ControllerBase
             .FirstOrDefaultAsync(s => s.TrackingNumber == trackingNumber, ct);
 
         return shipment is null
-            ? NotFound($"Shipment {trackingNumber} not found")
-            : ShipmentResponse.FromEntity(shipment);
+      ? Problem(statusCode: StatusCodes.Status404NotFound,
+          title: "Shipment not found",
+          detail: $"Shipment {trackingNumber} not found")
+      : ShipmentResponse.FromEntity(shipment);
     }
 
     // POST api/shipments
@@ -47,7 +49,7 @@ public class ShipmentsController(ShipmentsDbContext db) : ControllerBase
         if (await db.Shipments.AnyAsync(s => s.TrackingNumber == request.TrackingNumber, ct))
             return Problem(statusCode: StatusCodes.Status409Conflict,
                 title: "Shipment already exists",
-                detail: $"Shipment {request.TrackingNumber} is already exists");
+                detail: $"Shipment {request.TrackingNumber} already exists");
 
         var shipment = new Shipment
         {
@@ -73,13 +75,15 @@ public class ShipmentsController(ShipmentsDbContext db) : ControllerBase
     {
         var shipment = await db.Shipments.FirstOrDefaultAsync(s => s.TrackingNumber == trackingNumber, ct);
         if (shipment is null)
-            return NotFound($"Shipment {trackingNumber} not found");
+            return Problem(statusCode: StatusCodes.Status404NotFound,
+                    title: "Shipment not found",
+                    detail: $"Shipment {trackingNumber} not found");
 
-        // Business rule: a delivered shipment is final
-        if (shipment.Status == ShipmentStatus.Delivered)
+        // Business rules for status changes live in ShipmentStatusRules
+        if (!ShipmentStatusRules.CanChange(shipment.Status, request.Status))
             return Problem(statusCode: StatusCodes.Status409Conflict,
-               title: "Shipment already delivered",
-               detail: $"Shipment {trackingNumber} is already delivered");
+               title: "Status change not allowed",
+               detail: $"Shipment {trackingNumber} can't change from {shipment.Status} to {request.Status}");
 
         shipment.Status = request.Status;
         if (request.Status == ShipmentStatus.Delivered)
@@ -88,4 +92,4 @@ public class ShipmentsController(ShipmentsDbContext db) : ControllerBase
         await db.SaveChangesAsync(ct);
         return ShipmentResponse.FromEntity(shipment);
     }
-}
+}                                                               
