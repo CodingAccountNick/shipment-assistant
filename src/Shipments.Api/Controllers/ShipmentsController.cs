@@ -1,0 +1,91 @@
+﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Shipments.Api.Data;
+using Shipments.Api.Models;
+
+namespace Shipments.Api.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+public class ShipmentsController(ShipmentsDbContext db) : ControllerBase
+{
+    // GET api/shipments
+    [HttpGet]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<List<ShipmentResponse>>> GetAll(CancellationToken ct)
+    {
+        var shipments = await db.Shipments
+            .AsNoTracking()
+            .OrderBy(s => s.TrackingNumber)
+            .ToListAsync(ct);
+
+        return shipments.Select(ShipmentResponse.FromEntity).ToList();
+    }
+
+    // GET api/shipments/SH-1001
+    [HttpGet("{trackingNumber}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ShipmentResponse>> GetByTrackingNumber(string trackingNumber, CancellationToken ct)
+    {
+        var shipment = await db.Shipments
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.TrackingNumber == trackingNumber, ct);
+
+        return shipment is null
+            ? NotFound($"Shipment {trackingNumber} not found")
+            : ShipmentResponse.FromEntity(shipment);
+    }
+
+    // POST api/shipments
+    [HttpPost]
+    [ProducesResponseType(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<ShipmentResponse>> Create(CreateShipmentRequest request, CancellationToken ct)
+    {
+        if (await db.Shipments.AnyAsync(s => s.TrackingNumber == request.TrackingNumber, ct))
+            return Problem(statusCode: StatusCodes.Status409Conflict,
+                title: "Shipment already exists",
+                detail: $"Shipment {request.TrackingNumber} is already exists");
+
+        var shipment = new Shipment
+        {
+            TrackingNumber = request.TrackingNumber,
+            Origin = request.Origin,
+            Destination = request.Destination
+        };
+
+        db.Shipments.Add(shipment);
+        await db.SaveChangesAsync(ct);
+
+        var response = ShipmentResponse.FromEntity(shipment);
+        return CreatedAtAction(nameof(GetByTrackingNumber), new { trackingNumber = shipment.TrackingNumber }, response);
+    }
+
+    // PATCH api/shipments/SH-1001/status
+    [HttpPatch("{trackingNumber}/status")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<ShipmentResponse>> UpdateStatus(string trackingNumber, UpdateStatusRequest request, CancellationToken ct)
+    {
+        var shipment = await db.Shipments.FirstOrDefaultAsync(s => s.TrackingNumber == trackingNumber, ct);
+        if (shipment is null)
+            return NotFound($"Shipment {trackingNumber} not found");
+
+        // Business rule: a delivered shipment is final
+        if (shipment.Status == ShipmentStatus.Delivered)
+            return Problem(statusCode: StatusCodes.Status409Conflict,
+               title: "Shipment already delivered",
+               detail: $"Shipment {trackingNumber} is already delivered");
+
+        shipment.Status = request.Status;
+        if (request.Status == ShipmentStatus.Delivered)
+            shipment.DeliveredAt = DateTime.UtcNow;
+
+        await db.SaveChangesAsync(ct);
+        return ShipmentResponse.FromEntity(shipment);
+    }
+}
