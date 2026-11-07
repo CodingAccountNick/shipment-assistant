@@ -4,6 +4,7 @@ WORKDIR /app
 
 # Default Ollama address for containers (the host machine)
 ENV OLLAMA_URL=http://host.docker.internal:11434/api/generate
+ENV OLLAMA_EMBED_URL=http://host.docker.internal:11434/api/embed
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

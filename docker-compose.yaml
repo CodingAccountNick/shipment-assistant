@@ -3,8 +3,13 @@ services:
     build: ./ai-service
     ports:
       - "8001:8001"
+    environment:
+      DATABASE_URL: postgresql://shipments:${POSTGRES_PASSWORD:-devpassword}@db:5432/shipments
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
   shipments-api:
