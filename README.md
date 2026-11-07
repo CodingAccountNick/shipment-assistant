@@ -11,7 +11,8 @@ An AI assistant that answers questions about shipments in plain language: where 
 | Folder | What it is | Status |
 |---|---|---|
 | `web/` | Angular front end (standalone components, signals): a shipment list and a chat with the assistant, served by nginx in Docker | In progress |
-| `ai-service/` | Python service (FastAPI) that talks to a locally hosted LLM (Llama 3.2 via Ollama) | In progress |
+| `ai-service/` | Python service (FastAPI) that talks to a locally hosted LLM (Llama 3.2 via Ollama) and searches the policy documents | In progress |
+| `ai-service/docs/` | Company policy documents (delivery, missed deliveries, delays) that the assistant answers from | Done |
 | `src/Shipments.Api/` | ASP.NET Core 8 Web API that stores shipments and forwards questions to the AI service | In progress |
 | `src/Shipments.Api/Data/` | `Shipment` entity and `ShipmentsDbContext` (Entity Framework Core, code-first) | Done |
 | `src/Shipments.Api/Migrations/` | EF Core migrations that create the database tables | Done |
@@ -32,7 +33,7 @@ Browser ──► web (Angular + nginx, :8080)
 You need:
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/), running
-- [Ollama](https://ollama.com), running, with the model pulled: `ollama pull llama3.2`
+- [Ollama](https://ollama.com), running, with both models pulled: `ollama pull llama3.2` and `ollama pull nomic-embed-text`
 
 Then:
 
@@ -61,6 +62,7 @@ The first build takes a few minutes. The database and its tables are created aut
 | Problem | Fix |
 |---|---|
 | `503 AI service is not available` | Check that the containers are running (`docker compose ps`) and that Ollama is running on your machine |
+| Answers ignore the policy documents | Check that `nomic-embed-text` is pulled in Ollama, and look for "Stored 9 chunks" in `docker compose logs ai-service` |
 | `port is already allocated` | Something else is using port 8080, 5108, 8001 or 5432, for example the API running from Visual Studio or a local PostgreSQL install. Stop it and run `docker compose up -d` again |
 | The app or Swagger doesn't load | The build may still be running, or the API is waiting for the database. Check `docker compose logs -f web shipments-api` |
 | The app shows "Could not load shipments" | The API isn't reachable. Check `docker compose ps` and `docker compose logs shipments-api` |
@@ -182,7 +184,44 @@ This is the first step of retrieval-augmented generation (RAG): **retrieve** the
 - **One query for every shipment mentioned.** "Compare SH-1001 and SH-1002" loads both in a single database call.
 - **The prompt tells the model to stick to the facts** and to say it doesn't know when they don't contain the answer.
 
-Questions without a tracking number ("What does out for delivery mean?") are answered from the model's general knowledge.
+## How the assistant uses the policy documents
+
+Ask "What happens if nobody is home?" and the assistant answers from the company's own policies in `ai-service/docs/`, found by **meaning**, not by matching words:
+
+```text
+docs/*.md ──► one chunk per section ──► embedded with nomic-embed-text ──► stored in PostgreSQL (pgvector)
+
+question ──► embedded ──► pgvector finds the 3 closest chunks ──► chunks scoring ≥ 0.57 go into the prompt
+```
+
+- **Embeddings.** An embedding model turns each text into 768 numbers that represent its meaning. Texts with similar meanings get similar vectors, so "What if I miss the courier?" finds the section about recipients who aren't home, even though they share no words.
+- **Chunks.** Each `## ` section is one chunk, with the document's title in front for context, so a short section like "Compensation" still says it's about delays.
+- **Search in the database.** pgvector compares the question's vector with every chunk using cosine distance (`embedding <=> query`) and returns the closest ones.
+- **Question and document prefixes.** `nomic-embed-text` is trained with `search_query:` and `search_document:` labels. Using them widened the gap between the right chunk and the next best from 0.007 to 0.037 in testing.
+- **A minimum score.** Chunks scoring below 0.57 are ignored, so off-topic questions don't pull random policy text into the prompt.
+- **Combined with shipment data.** "Where is SH-1003 and why might it be late?" gets the shipment's facts from the API and the delays policy from pgvector, in one prompt.
+- **Built on startup.** The AI service re-reads and re-embeds the documents every time it starts, so editing a file in `docs/` and restarting is all it takes. If the database or embedding model is unavailable, the assistant still answers, just without the documents.
+
+### Measuring retrieval
+
+`ai-service/eval_retrieval.py` runs 12 test questions and checks which document is found for each. The questions deliberately use different words from the documents ("expensive parcel" instead of "worth more than 500 euros"), and two are off-topic and should find nothing.
+
+```bash
+cd ai-service
+python eval_retrieval.py
+```
+
+Current results:
+
+| Measure | Result |
+|---|---|
+| Top-1 accuracy (best chunk from the right document) | 10/10 |
+| Hit rate (right document in the top 3) | 10/10 |
+| Off-topic questions with no documents | 2/2 |
+
+The minimum score of 0.57 was picked from these results: real questions scored at least 0.639 and the highest off-topic question 0.505, so the threshold sits in the middle of that gap. Re-run the evaluation after changing the documents, the chunking, the threshold or the model.
+
+Questions without a tracking number or a matching policy ("What does out for delivery mean?") are answered from the model's general knowledge.
 
 ## Demo: concurrent fire-and-forget workers
 
@@ -271,9 +310,9 @@ I think this is worth sharing because it's how a lot of us build software now. F
 - [x] Angular front end (standalone components, signals) with a shipment list and a chat box, served by nginx in Docker
 - [x] GitHub Actions: build, run all tests and build the Docker images on every push and pull request
 - [x] Grounded answers: questions about a tracking number are answered from that shipment's data in PostgreSQL
-- [ ] RAG over documents: delivery policies split into chunks, embedded and searched with pgvector, with a small test set to measure accuracy
+- [x] RAG over documents: delivery policies split into chunks, embedded and searched with pgvector, with a test set to measure retrieval accuracy
 - [ ] Messaging: a "shipment delivered" event sent through RabbitMQ to a separate .NET notifications service
 
 ## Tech
 
-Angular · TypeScript · nginx · C# · ASP.NET Core 8 · Entity Framework Core · PostgreSQL · pgvector · xUnit · Testcontainers · Python · FastAPI · Docker · Docker Compose · GitHub Actions · Ollama · Llama 3.2
+Angular · TypeScript · nginx · C# · ASP.NET Core 8 · Entity Framework Core · PostgreSQL · pgvector · xUnit · Testcontainers · Python · FastAPI · Docker · Docker Compose · GitHub Actions · Ollama · Llama 3.2 · nomic-embed-text · psycopg

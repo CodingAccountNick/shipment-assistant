@@ -1,10 +1,24 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import requests
-
+from contextlib import asynccontextmanager
 from ask import ask
+import ingest
+import requests
+import logging
 
-app = FastAPI(title="Shipment Assistant AI service")
+@asynccontextmanager
+async def lifespan(app):
+    # On startup: (re)build the document index
+    try:
+        ingest.main()
+    except Exception:
+        logger.exception("Document ingest failed; answers won't use the policy documents")
+    yield
+
+
+logger = logging.getLogger("uvicorn.error")
+
+app = FastAPI(title="Shipment AI Service", lifespan=lifespan)
 
 
 class AskRequest(BaseModel):

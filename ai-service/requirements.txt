@@ -1,2 +1,5 @@
 fastapi[standard]
 requests
+psycopg[binary]
+pgvector
+numpy
