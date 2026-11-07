@@ -20,8 +20,15 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       AiService__BaseUrl: http://ai-service:8001
       ConnectionStrings__Shipments: Host=db;Port=5432;Database=shipments;Username=shipments;Password=${POSTGRES_PASSWORD:-devpassword}
+      RabbitMq__HostName: rabbitmq
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:-devpassword}
     depends_on:
-      - ai-service
+      ai-service:
+        condition: service_started
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     restart: unless-stopped
 
   web:
@@ -31,7 +38,31 @@ services:
     depends_on:
       - shipments-api
     restart: unless-stopped
+    
+  rabbitmq:
+    image: rabbitmq:4-management
+    environment:
+      RABBITMQ_DEFAULT_USER: shipments
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-devpassword}
+    ports:
+      - "5672:5672"     # for the services
+      - "15672:15672"   # web management UI
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
 
+  notifications:
+    build: ./src/Notifications.Worker
+    environment:
+      RabbitMq__HostName: rabbitmq
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:-devpassword}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
 
   db:
     image: pgvector/pgvector:pg16

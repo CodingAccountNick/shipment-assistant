@@ -14,18 +14,22 @@ An AI assistant that answers questions about shipments in plain language: where 
 | `ai-service/` | Python service (FastAPI) that talks to a locally hosted LLM (Llama 3.2 via Ollama) and searches the policy documents | In progress |
 | `ai-service/docs/` | Company policy documents (delivery, missed deliveries, delays) that the assistant answers from | Done |
 | `src/Shipments.Api/` | ASP.NET Core 8 Web API that stores shipments and forwards questions to the AI service | In progress |
+| `src/Notifications.Worker/` | .NET 10 background service that listens for "shipment delivered" events from RabbitMQ and notifies the customer | Done |
 | `src/Shipments.Api/Data/` | `Shipment` entity and `ShipmentsDbContext` (Entity Framework Core, code-first) | Done |
 | `src/Shipments.Api/Migrations/` | EF Core migrations that create the database tables | Done |
 | `tests/Shipments.Api.Tests/` | xUnit unit tests for the status rules, and endpoint tests against a real PostgreSQL in Testcontainers | Done |
-| `docker-compose.yml` | Starts the whole app (web, API, AI service, PostgreSQL) in Docker with one command | Done |
+| `docker-compose.yml` | Starts the whole app (web, API, AI service, notifications, PostgreSQL, RabbitMQ) in Docker with one command | Done |
 
 ```text
 Browser ──► web (Angular + nginx, :8080)
                  │  /api/...
                  ▼
             Shipments.Api (.NET, :5108) ──► ai-service (Python, :8001) ──► Ollama / Llama 3.2 (your machine, :11434)
+                 │          │                    │
+                 │          │                    └──► PostgreSQL + pgvector (:5432)
+                 │          └──► PostgreSQL ◄────┘
                  │
-                 └──► PostgreSQL + pgvector (:5432)
+                 └── "shipment.delivered" ──► RabbitMQ (:5672, UI :15672) ──► Notifications.Worker (.NET 10)
 ```
 
 ## Quick start
@@ -47,6 +51,7 @@ The first build takes a few minutes. The database and its tables are created aut
 
 - **The app:** open **http://localhost:8080** to see the shipment list and chat with the assistant. Click one of the suggested questions to try it. The first answer can take a little longer while Ollama loads the model.
 - **The API:** open **http://localhost:5108**, which redirects to Swagger, to try the endpoints directly.
+- **Messaging:** open **http://localhost:15672** (user `shipments`, password `devpassword`) to watch RabbitMQ's exchanges and queues. Deliver a shipment and run `docker compose logs notifications` to see the notification it triggers.
 
 | Command | What it does |
 |---|---|
@@ -63,7 +68,8 @@ The first build takes a few minutes. The database and its tables are created aut
 |---|---|
 | `503 AI service is not available` | Check that the containers are running (`docker compose ps`) and that Ollama is running on your machine |
 | Answers ignore the policy documents | Check that `nomic-embed-text` is pulled in Ollama, and look for "Stored 9 chunks" in `docker compose logs ai-service` |
-| `port is already allocated` | Something else is using port 8080, 5108, 8001 or 5432, for example the API running from Visual Studio or a local PostgreSQL install. Stop it and run `docker compose up -d` again |
+| No notification after delivering a shipment | Check that the last status change returned `200` (shipments must go `InTransit` → `OutForDelivery` → `Delivered`), then `docker compose logs notifications` |
+| `port is already allocated` | Something else is using port 8080, 5108, 8001, 5432, 5672 or 15672, for example the API running from Visual Studio or a local PostgreSQL install. Stop it and run `docker compose up -d` again |
 | The app or Swagger doesn't load | The build may still be running, or the API is waiting for the database. Check `docker compose logs -f web shipments-api` |
 | The app shows "Could not load shipments" | The API isn't reachable. Check `docker compose ps` and `docker compose logs shipments-api` |
 
@@ -120,16 +126,45 @@ Docker Desktop must be running, because the endpoint tests start their own datab
 dotnet test
 ```
 
-The same tests run automatically on GitHub Actions for every push and pull request to `main` (see `.github/workflows/ci.yml`), together with a build of all the Docker images, which also checks that the Angular app compiles. The badge at the top shows the latest result.
+The same tests run automatically on GitHub Actions for every push and pull request to `main` (see `.github/workflows/ci.yml`), together with a build of all the Docker images, which also checks that the Angular app compiles. CI installs both .NET 8 and .NET 10, because the solution contains projects for both. The badge at the top shows the latest result.
 
 There are two kinds of tests:
 
 - **Unit tests** (`ShipmentStatusRulesTests`) check the status rules on their own, with no database or HTTP. A shipment can only move along the allowed path (`Created → InTransit → OutForDelivery → Delivered`, with `Delayed` possible on the way), and a delivered shipment can't change again.
 - **Endpoint tests** (`ShipmentsEndpointTests`) start the real API in memory with `WebApplicationFactory` and send real HTTP requests to it. They check status codes (201, 400, 404, 409), response bodies and the ProblemDetails errors. [Testcontainers](https://testcontainers.com) starts a fresh PostgreSQL container for each test run and removes it afterwards, so the tests use a real database and never touch your development data. Each test that changes data creates its own shipment, so the tests don't depend on each other or on the order they run in.
 
+## Messaging: shipment delivered events
+
+When a shipment is marked as delivered, the API announces it through RabbitMQ instead of calling other services directly:
+
+```text
+Shipments.Api ──► exchange "shipments" ──(routing key: shipment.delivered)──► queue "notifications.shipment-delivered" ──► Notifications.Worker
+```
+
+The worker logs the email it would send:
+
+```text
+Email to customer: your shipment SH-6010 from London to Vienna was delivered on 07 Nov 2026 15:40.
+```
+
+- **The API doesn't wait and doesn't know who listens.** It publishes the event and returns. New listeners (invoicing, analytics) can be added by binding their own queue to the exchange, with no change to the API.
+- **Nothing is lost when a listener is down.** Stop the worker (`docker compose stop notifications`), deliver a shipment, and the message waits in its queue. Start the worker again and the notification is sent straight away.
+- **Events go out only after the change is saved.** The API publishes after `SaveChangesAsync`. If RabbitMQ is unreachable, the delivery is still saved and the failure is logged.
+- **Messages are confirmed, not just received.** The worker acknowledges each message only after handling it, so a crash mid-way means the message is delivered again. A message that can't be processed is rejected, so it doesn't block the queue.
+- **One message at a time.** The worker takes the next message only after confirming the current one (prefetch 1).
+- **The contract is the JSON, not shared code.** Each service has its own copy of the `ShipmentDelivered` record, so they can change and deploy independently. Both use camelCase JSON.
+- **Different .NET versions per service.** The worker runs on .NET 10 while the API is on .NET 8, which separate services make possible. (Building the worker in Visual Studio needs Visual Studio 2026.)
+
+**What I'd add for production**
+
+- **The outbox pattern.** Today, if RabbitMQ is down at the moment of delivery, that event is lost. With an outbox, the event is saved in the database in the same transaction as the status change, and a background job sends it to RabbitMQ, retrying until it succeeds.
+- **A dead-letter queue** for messages the worker rejects, so they can be inspected and replayed instead of dropped.
+- **A fake publisher in the tests.** The endpoint tests currently try to publish to a real RabbitMQ. Putting the publisher behind an interface would let the tests use a fake and check exactly which events were sent.
+
 ## How the Docker setup works
 
-- **Four containers, one network.** Docker Compose puts the services on a private network, where they reach each other by service name: nginx forwards `/api/...` to `http://shipments-api:8080`, the API calls `http://ai-service:8001`, and it connects to the database at `Host=db`.
+- **Six containers, one network.** Docker Compose puts the services on a private network, where they reach each other by service name: nginx forwards `/api/...` to `http://shipments-api:8080`, the API calls `http://ai-service:8001`, both connect to the database at `db`, and the API and the worker connect to RabbitMQ at `rabbitmq`.
+- **Each service waits for what it needs.** PostgreSQL and RabbitMQ have health checks, and the services that depend on them only start once they pass.
 - **The front end is just files.** The Angular app is compiled in a Node image, then only the built files are copied into a small nginx image. nginx serves them, falls back to `index.html` for app routes, and forwards API calls with a longer timeout for slow AI answers.
 - **Configuration by environment.** `appsettings.json` holds the addresses for local development. In Docker, the environment variables `AiService__BaseUrl` and `ConnectionStrings__Shipments` override them (`__` stands for `:` in .NET configuration), so the same code works in both places.
 - **The API waits for the database.** PostgreSQL has a health check (`pg_isready`), and the API only starts once it passes, so it never tries to connect too early.
@@ -311,8 +346,11 @@ I think this is worth sharing because it's how a lot of us build software now. F
 - [x] GitHub Actions: build, run all tests and build the Docker images on every push and pull request
 - [x] Grounded answers: questions about a tracking number are answered from that shipment's data in PostgreSQL
 - [x] RAG over documents: delivery policies split into chunks, embedded and searched with pgvector, with a test set to measure retrieval accuracy
-- [ ] Messaging: a "shipment delivered" event sent through RabbitMQ to a separate .NET notifications service
+- [x] Messaging: a "shipment delivered" event sent through RabbitMQ to a separate .NET 10 notifications service
+- [ ] Outbox pattern, so no event is lost when RabbitMQ is unreachable
+- [ ] Upgrade the API and tests to .NET 10 (.NET 8 reaches end of support in November 2026)
+- [ ] Conversation history in the chat, so follow-up questions keep their context
 
 ## Tech
 
-Angular · TypeScript · nginx · C# · ASP.NET Core 8 · Entity Framework Core · PostgreSQL · pgvector · xUnit · Testcontainers · Python · FastAPI · Docker · Docker Compose · GitHub Actions · Ollama · Llama 3.2 · nomic-embed-text · psycopg
+Angular · TypeScript · nginx · C# · ASP.NET Core 8 · .NET 10 worker service · RabbitMQ · Entity Framework Core · PostgreSQL · pgvector · xUnit · Testcontainers · Python · FastAPI · Docker · Docker Compose · GitHub Actions · Ollama · Llama 3.2 · nomic-embed-text · psycopg

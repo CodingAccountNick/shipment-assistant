@@ -1,13 +1,15 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Shipments.Api.Data;
+using Shipments.Api.Messaging;
 using Shipments.Api.Models;
+using Shipments.Api.Messaging;
 
 namespace Shipments.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class ShipmentsController(ShipmentsDbContext db) : ControllerBase
+public class ShipmentsController(ShipmentsDbContext db,RabbitMqPublisher publisher,ILogger<ShipmentsController> logger) : ControllerBase
 {
     // GET api/shipments
     [HttpGet]
@@ -90,6 +92,27 @@ public class ShipmentsController(ShipmentsDbContext db) : ControllerBase
             shipment.DeliveredAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);
+
+
+
+        // Tell the rest of the system, but only after the change is saved
+        if (shipment.Status == ShipmentStatus.Delivered)
+        {
+            try
+            {
+                await publisher.PublishAsync("shipment.delivered",
+                    new ShipmentDelivered(shipment.TrackingNumber, shipment.Origin,
+                        shipment.Destination, shipment.DeliveredAt!.Value), ct);
+            }
+            catch (Exception ex)
+            {
+                // The delivery is saved either way; a failed notification shouldn't fail the request
+                logger.LogError(ex, "Could not publish ShipmentDelivered for {TrackingNumber}", shipment.TrackingNumber);
+            }
+        }
+
+
+
         return ShipmentResponse.FromEntity(shipment);
     }
 }                                                               
