@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Shipments.Api.Data;
 using Shipments.Api.Services;
+using Shipments.Api.Messaging;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -11,6 +12,7 @@ builder.Services.AddHttpClient<AiServiceClient>(client =>
     client.BaseAddress = new Uri(builder.Configuration["AiService:BaseUrl"] ?? "http://127.0.0.1:8000"));
 
 builder.Services.AddSingleton<DemoWorker>();
+builder.Services.AddSingleton<RabbitMqPublisher>();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
