@@ -13,12 +13,12 @@ An AI assistant that answers questions about shipments in plain language: where 
 | `web/` | Angular front end (standalone components, signals): a shipment list and a chat with the assistant, served by nginx in Docker | In progress |
 | `ai-service/` | Python service (FastAPI) that talks to a locally hosted LLM (Llama 3.2 via Ollama) and searches the policy documents | In progress |
 | `ai-service/docs/` | Company policy documents (delivery, missed deliveries, delays) that the assistant answers from | Done |
-| `src/Shipments.Api/` | ASP.NET Core 8 Web API that stores shipments and forwards questions to the AI service | In progress |
+| `src/Shipments.Api/` | ASP.NET Core 10 Web API that stores shipments and forwards questions to the AI service | In progress |
 | `src/Notifications.Worker/` | .NET 10 background service that listens for "shipment delivered" events from RabbitMQ and notifies the customer | Done |
 | `src/Shipments.Api/Data/` | `Shipment` entity and `ShipmentsDbContext` (Entity Framework Core, code-first) | Done |
 | `src/Shipments.Api/Migrations/` | EF Core migrations that create the database tables | Done |
 | `tests/Shipments.Api.Tests/` | xUnit unit tests for the status rules, and endpoint tests against a real PostgreSQL in Testcontainers | Done |
-| `docker-compose.yml` | Starts the whole app (web, API, AI service, notifications, PostgreSQL, RabbitMQ) in Docker with one command | Done |
+| `docker-compose.yaml` | Starts the whole app (web, API, AI service, notifications, PostgreSQL, RabbitMQ) in Docker with one command | Done |
 
 ```text
 Browser ──► web (Angular + nginx, :8080)
@@ -81,7 +81,7 @@ To debug the API in Visual Studio, stop its container first so port 5108 is free
 docker compose stop shipments-api
 ```
 
-Then open `ShipmentAssistant.sln` and press **F5**, or run `dotnet run --project src/Shipments.Api`. The API reads its settings from `appsettings.json`, which point at the containers through your machine: the AI service at `http://127.0.0.1:8001` and the database at `localhost:5432`.
+Then open `ShipmentAssistant.sln` in Visual Studio 2026 (needed for .NET 10) and press **F5**, or run `dotnet run --project src/Shipments.Api`. The API reads its settings from `appsettings.json`, which point at the containers through your machine: the AI service at `http://127.0.0.1:8001` and the database at `localhost:5432`.
 
 ### Front end
 
@@ -126,7 +126,7 @@ Docker Desktop must be running, because the endpoint tests start their own datab
 dotnet test
 ```
 
-The same tests run automatically on GitHub Actions for every push and pull request to `main` (see `.github/workflows/ci.yml`), together with a build of all the Docker images, which also checks that the Angular app compiles. CI installs both .NET 8 and .NET 10, because the solution contains projects for both. The badge at the top shows the latest result.
+The same tests run automatically on GitHub Actions for every push and pull request to `main` (see `.github/workflows/ci.yml`), together with a build of all the Docker images, which also checks that the Angular app compiles. The badge at the top shows the latest result.
 
 There are two kinds of tests:
 
@@ -153,7 +153,7 @@ Email to customer: your shipment SH-6010 from London to Vienna was delivered on 
 - **Messages are confirmed, not just received.** The worker acknowledges each message only after handling it, so a crash mid-way means the message is delivered again. A message that can't be processed is rejected, so it doesn't block the queue.
 - **One message at a time.** The worker takes the next message only after confirming the current one (prefetch 1).
 - **The contract is the JSON, not shared code.** Each service has its own copy of the `ShipmentDelivered` record, so they can change and deploy independently. Both use camelCase JSON.
-- **Different .NET versions per service.** The worker runs on .NET 10 while the API is on .NET 8, which separate services make possible. (Building the worker in Visual Studio needs Visual Studio 2026.)
+- **Each service can be upgraded on its own.** The worker started on .NET 10 while the API was still on .NET 8. Because they share only the JSON contract, that worked without problems, and the API was moved to .NET 10 later in its own change.
 
 **What I'd add for production**
 
@@ -347,10 +347,10 @@ I think this is worth sharing because it's how a lot of us build software now. F
 - [x] Grounded answers: questions about a tracking number are answered from that shipment's data in PostgreSQL
 - [x] RAG over documents: delivery policies split into chunks, embedded and searched with pgvector, with a test set to measure retrieval accuracy
 - [x] Messaging: a "shipment delivered" event sent through RabbitMQ to a separate .NET 10 notifications service
+- [x] Upgraded the API and tests from .NET 8 to .NET 10, before .NET 8's end of support in November 2026
 - [ ] Outbox pattern, so no event is lost when RabbitMQ is unreachable
-- [ ] Upgrade the API and tests to .NET 10 (.NET 8 reaches end of support in November 2026)
 - [ ] Conversation history in the chat, so follow-up questions keep their context
 
 ## Tech
 
-Angular · TypeScript · nginx · C# · ASP.NET Core 8 · .NET 10 worker service · RabbitMQ · Entity Framework Core · PostgreSQL · pgvector · xUnit · Testcontainers · Python · FastAPI · Docker · Docker Compose · GitHub Actions · Ollama · Llama 3.2 · nomic-embed-text · psycopg
+Angular · TypeScript · nginx · C# · .NET 10 · ASP.NET Core · worker service · RabbitMQ · Entity Framework Core · PostgreSQL · pgvector · xUnit · Testcontainers · Python · FastAPI · Docker · Docker Compose · GitHub Actions · Ollama · Llama 3.2 · nomic-embed-text · psycopg

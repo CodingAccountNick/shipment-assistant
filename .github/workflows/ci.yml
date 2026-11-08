@@ -1,4 +1,4 @@
-name: CI
+  name: CI
 
 # When to run: every push to main, and every pull request into main
 on:
@@ -18,10 +18,7 @@ jobs:
       - name: Set up .NET 8
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: |
-            8.0.x
-            10.0.x
-
+          dotnet-version: 10.0.x
       - name: Restore packages
         run: dotnet restore
 
