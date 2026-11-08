@@ -4,21 +4,22 @@
 
 An AI assistant that answers questions about shipments in plain language: where a package is, when it will arrive, and why it's delayed.
 
-> 🟡 **Work in progress.** I'm building this in the open, so expect frequent changes.
+> **Status:** the planned features are complete, tested and running in CI. Ideas for further improvements are listed in the [roadmap](#roadmap).
 
 ## Structure
 
-| Folder | What it is | Status |
-|---|---|---|
-| `web/` | Angular front end (standalone components, signals): a shipment list and a chat with the assistant, served by nginx in Docker | In progress |
-| `ai-service/` | Python service (FastAPI) that talks to a locally hosted LLM (Llama 3.2 via Ollama) and searches the policy documents | In progress |
-| `ai-service/docs/` | Company policy documents (delivery, missed deliveries, delays) that the assistant answers from | Done |
-| `src/Shipments.Api/` | ASP.NET Core 10 Web API that stores shipments and forwards questions to the AI service | In progress |
-| `src/Notifications.Worker/` | .NET 10 background service that listens for "shipment delivered" events from RabbitMQ and notifies the customer | Done |
-| `src/Shipments.Api/Data/` | `Shipment` entity and `ShipmentsDbContext` (Entity Framework Core, code-first) | Done |
-| `src/Shipments.Api/Migrations/` | EF Core migrations that create the database tables | Done |
-| `tests/Shipments.Api.Tests/` | xUnit unit tests for the status rules, and endpoint tests against a real PostgreSQL in Testcontainers | Done |
-| `docker-compose.yaml` | Starts the whole app (web, API, AI service, notifications, PostgreSQL, RabbitMQ) in Docker with one command | Done |
+| Folder | What it is |
+|---|---|
+| `web/` | Angular front end (standalone components, signals): a shipment list and a chat with the assistant, served by nginx in Docker |
+| `ai-service/` | Python service (FastAPI) that talks to a locally hosted LLM (Llama 3.2 via Ollama) and searches the policy documents |
+| `ai-service/docs/` | Company policy documents (delivery, missed deliveries, delays) that the assistant answers from |
+| `src/Shipments.Api/` | ASP.NET Core 10 Web API that stores shipments and forwards questions to the AI service |
+| `src/Notifications.Worker/` | .NET 10 background service that listens for "shipment delivered" events from RabbitMQ and notifies the customer |
+| `src/Shipments.Api/Data/` | `Shipment` entity and `ShipmentsDbContext` (Entity Framework Core, code-first) |
+| `src/Shipments.Api/Migrations/` | EF Core migrations that create the database tables |
+| `tests/Shipments.Api.Tests/` | xUnit unit tests for the status rules, and endpoint tests against a real PostgreSQL in Testcontainers |
+| `docker-compose.yaml` | Starts the whole app (web, API, AI service, notifications, PostgreSQL, RabbitMQ) in Docker with one command |
+| `scripts/` | `smoke-test.sh`: 13 end-to-end checks against the running app (web app, API, messaging and AI assistant) |
 
 ```text
 Browser ──► web (Angular + nginx, :8080)
