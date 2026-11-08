@@ -1,4 +1,4 @@
-  name: CI
+name: CI
 
 # When to run: every push to main, and every pull request into main
 on:
@@ -15,7 +15,7 @@ jobs:
       - name: Check out the code
         uses: actions/checkout@v4
 
-      - name: Set up .NET 8
+      - name: Set up .NET 10
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
