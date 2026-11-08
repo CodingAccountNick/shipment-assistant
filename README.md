@@ -4,7 +4,7 @@
 
 An AI assistant that answers questions about shipments in plain language: where a package is, when it will arrive, and why it's delayed.
 
-> **Status:** the planned features are complete, tested and running in CI. Ideas for further improvements are listed in the [roadmap](#roadmap).
+> **Status:** the planned features are complete, tested and running in CI. Ideas for further improvements are listed under [Ideas for later](#ideas-for-later).
 
 ## Structure
 
@@ -349,8 +349,13 @@ I think this is worth sharing because it's how a lot of us build software now. F
 - [x] RAG over documents: delivery policies split into chunks, embedded and searched with pgvector, with a test set to measure retrieval accuracy
 - [x] Messaging: a "shipment delivered" event sent through RabbitMQ to a separate .NET 10 notifications service
 - [x] Upgraded the API and tests from .NET 8 to .NET 10, before .NET 8's end of support in November 2026
-- [ ] Outbox pattern, so no event is lost when RabbitMQ is unreachable
-- [ ] Conversation history in the chat, so follow-up questions keep their context
+
+### Ideas for later
+
+The app works without these. They are the next improvements I would make:
+
+- **Outbox pattern**, so no event is lost when RabbitMQ is unreachable. See [Messaging](#messaging-shipment-delivered-events) for how it would work.
+- **Conversation history in the chat**, so follow-up questions keep their context. Right now each question is answered on its own.
 
 ## Tech
 
